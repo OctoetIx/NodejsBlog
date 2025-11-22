@@ -1,0 +1,54 @@
+<div class="form">
+    <section class="form__body">
+        <!-- login form start -->
+        <form action="/admin" class="login" method="post">
+    
+            <h1>Login</h1>
+            <div class="inputBox">
+                <input type="text" name="username" required>
+                <label for="username">Username</label>
+            </div>
+            <div class="inputBox">
+                <input type="password" name="password" required>
+                <label for="password">Password</label>
+            </div>
+            <div class="forget">
+                <label><input type="checkbox" name="">Remember Me   <a href="#">Forget Password</a></label>
+            </div>
+            <input type="submit" value="Log in" class="btn__form" />
+            <div class="para">
+                <p>Don't have an account? <a href="#" id="signup">Register</a></p>
+            </div>
+    
+        </form>
+        <!-- login form end -->
+            <!-- Sign up form start -->
+            <form action="/register" method="post" class="sign-up">
+    
+                <h1>Sign Up</h1>
+                <div class="inputBox">
+                    <input type="text" name="username" required>
+                    <label for="name">Username</label>
+                </div>
+                <div class="inputBox">
+                    <input type="email" name="email" required>
+                    <label for="email">Email</label>
+                </div>
+                <div class="inputBox">
+                    <input type="password" name="password" required>
+                    <label for="password">Password</label>
+                </div>
+                <div class="forget">
+                    <label><input type="checkbox" name="">I agree to <a href="#">Privacy policy & terms</a></label>
+                </div>
+                <input type="submit" value="Sign Up" class="btn__form" />
+                <div class="para">
+                    <p>Already have an account? <a href="#" id="login">Log in</a></p>
+                </div>
+        
+            </form>
+            <!-- sign up form end -->
+    
+    </section>
+    
+</div>
