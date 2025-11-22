@@ -5,188 +5,176 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 const adminLayout = '../views/layouts/admin';
-const jwtSecret = process.env.JWT_SECRET;
+const jwtSecret = process.env.JWT_SECRET || 'supersecret';
 
-// Check Login
-const authMiddleware = ( req, res, next) =>{
-        const token = req.cookies.token;
-        if(!token){
-                return res.status(401).json({message: "unauthorized"});
-        }
-        try {
-                const decoded = jwt.verify(token, jwtSecret);
-                req.userId = decoded.userId;
-                next();
-        } catch (error) {
-                return res.status(401).json({message: "unauthorized"});
-        }
-}
+// ==========================
+// MIDDLEWARES
+// ==========================
 
-//Routes
-// GET 
-// HOME ADMIN-LOGIN PAGE
-router.get('/admin', async(req, res) => {
+// Auth middleware to protect routes
+const authMiddleware = (req, res, next) => {
+  const token = req.cookies.token;
+  if (!token) return res.redirect('/admin'); // Not logged in
 
-        try {
-                const locals ={
-                        title:"Admin",
-                        description: "Simple Blog Created with NodeJs, Express & MongoDb"
-                }
-                res.render('admin/index', 
-                {locals, layout: adminLayout}); 
-                
-        } catch (error) {
-                console.log(error);
-        }   
-});
-// ADMIN DASHBOARD
-router.get('/dashboard', authMiddleware, async(req, res) => {
+  try {
+    const decoded = jwt.verify(token, jwtSecret);
+    req.userId = decoded.userId;
+    next();
+  } catch (err) {
+    // Invalid or expired token
+    return res.redirect('/admin');
+  }
+};
 
-        try { 
-                const locals ={
-                        title: 'Dashboard',
-                        description: 'Simple Blog created with NodeJs, Express & MongoDb.'
-                }
-                const data = await Post.find();
-              
-                
-                let perPage = 4;
-                let page = req.query.page || 1;
+// ==========================
+// ROUTES
+// ==========================
 
-                const dat = await Post.aggregate([{$sort: {cratedAt: -1}}])
-                .skip(perPage * page - perPage)
-                .limit(perPage)
-                .exec();
-
-                const count = await Post.countDocuments();
-                const nextPage = parseInt(page) + 1;
-
-                const hasNextPage = nextPage <= Math.ceil(count / perPage)
-                res.render('admin/dashboard',{locals, data, dat, layout:adminLayout,   current: page,
-                        nextPage: hasNextPage ? nextPage :null});
-              
-                
-        } catch (error) {
-                
-        }
-});
-// GET ADD-POST
-router.get('/add-post',authMiddleware, async(req, res) => {
-        try {
-                const locals ={
-                        title:'Add post',
-                        description: 'Created with NodeJs, Express and MongoDB'
-                }
-                const data = await Post.find();
-
-                res.render('admin/add-post',{data})
-        } catch (error) {
-                
-        }
-       
-});
-// GET ROUTE EDIT DATA
-router.get('/edit-post/:id',authMiddleware, async(req, res) => {
-        try {
-                const locals ={
-                        title:'Edit post',
-                        description: 'Created with NodeJs, Express and MongoDB'
-                };
-             const data = await Post.findOne({_id: req.params.id});
-
-                res.render('admin/edit-post', {
-                        locals,
-                        data,
-                        layout: adminLayout
-                });
-        } catch (error) {
-               console.log(error) ;
-        }
-       
+// GET: Admin login page
+router.get('/admin', (req, res) => {
+  res.render('admin/index', {
+    locals: { title: 'Admin', description: 'Simple Blog Admin Login' },
+    layout: adminLayout
+  });
 });
 
+// POST: Admin login
+router.post('/admin', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
-// POST / HOME ADMIN-CHECK LOGIN 
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) return res.status(401).json({ message: 'Invalid credentials' });
 
-router.post('/admin', async(req, res) => {
+    // Create JWT with 7 days expiry
+    const token = jwt.sign({ userId: user._id }, jwtSecret, { expiresIn: '7d' });
 
-        try {
-                const {username, password} =req.body;
-                const user = await User.findOne({username});
-                if(!user){
-                        return res.status(401).json({message : "Invalid credentials"})
-                }
-                const isPasswordValid = await bcrypt.compare(password, user.password);
-                if(!isPasswordValid){
-                        return res.status(401).json({message: "Invalid credentials"});
-                }
-                const token =jwt.sign({userId: user._id}, jwtSecret);
-                res.cookie('token', token, {httpOnly:true});
-                res.redirect('/dashboard');
+    // Set persistent cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production'
+    });
 
-
-        } catch (error) {
-                console.log(error);
-        }   
-});
-// POST / HOME ADMIN-REGISTER
-
-router.post('/register', async(req, res) => {
-
-        try {
-                const {username, email, password}= req.body;
-                const hashedPassword = await bcrypt.hash(password, 10);
-
-        try { 
-               const user = await User.create({username, email, password:hashedPassword});
-               res.status(201).json({message: 'user created', user});
-        } catch (error) {
-               if(error.code === 11000){
-                res.status(409).json({message: 'user already in use'});
-               } 
-               res.status(500).json({message: 'internal server error'});
-        }
-
-               
-        } catch (error) {
-                console.log(error);
-        }   
+    res.redirect('/dashboard');
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
-// POST ADD-POST
-router.post('/add-post',authMiddleware, async(req, res) => {
-        try {
-                const newPost = new Post({
-                        title: req.body.title,
-                        body: req.body.body
-                });
-                await Post.create(newPost);
+// POST: Admin registration
+router.post('/register', async (req, res) => {
+  try {
+    const { username, email, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-                res.redirect('/dashboard')
-        } catch (error) {
-                
-        }
-       
+    const user = await User.create({ username, email, password: hashedPassword });
+    res.status(201).json({ message: 'User created', user });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ message: 'User already exists' });
+    }
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
-// PUT ROUTE EDIT DATA
-// POST EDIT-POST
-router.put('/edit-post/:id', authMiddleware, async(req, res) => {
-        try {
-               
-                await Post.findByIdAndUpdate(req.params.id, {
-                        title: req.body.title,
-                        body: req.body.body,
-                        updatedAt: Date.now()
-                });
-
-                res.redirect('/dashboard');
-        } catch (error) {
-                console.log(error)
-        }
-       
+// POST: Admin logout
+router.post('/logout', (req, res) => {
+  res.clearCookie('token');
+  res.redirect('/admin');
 });
 
+// GET: Admin dashboard
+router.get('/dashboard', authMiddleware, async (req, res) => {
+  try {
+    const locals = { title: 'Dashboard', description: 'Blog Admin Dashboard' };
+    const perPage = 4;
+    const page = parseInt(req.query.page) || 1;
 
-      module.exports = router;
-              
+    const posts = await Post.find()
+      .sort({ createdAt: -1 })
+      .skip(perPage * (page - 1))
+      .limit(perPage);
+
+    const total = await Post.countDocuments();
+    const nextPage = page + 1;
+    const hasNextPage = nextPage <= Math.ceil(total / perPage);
+
+    res.render('admin/dashboard', {
+      locals,
+      data:posts,
+      current: page,
+      nextPage: hasNextPage ? nextPage : null,
+      layout: adminLayout
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server error');
+  }
+});
+
+// GET: Add post page
+router.get('/add-post', authMiddleware, (req, res) => {
+  res.render('admin/add-post', {
+    locals: { title: 'Add Post', description: 'Add new blog post' },
+    layout: adminLayout
+  });
+});
+
+// POST: Add new post
+router.post('/add-post', authMiddleware, async (req, res) => {
+  try {
+    const newPost = new Post({ title: req.body.title, body: req.body.body });
+    await newPost.save();
+    res.redirect('/dashboard');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server error');
+  }
+});
+
+// GET: Edit post page
+router.get('/edit-post/:id', authMiddleware, async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) return res.redirect('/dashboard');
+
+    res.render('admin/edit-post', { post, layout: adminLayout });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server error');
+  }
+});
+
+// PUT: Edit post
+router.put('/edit-post/:id', authMiddleware, async (req, res) => {
+  try {
+    await Post.findByIdAndUpdate(req.params.id, {
+      title: req.body.title,
+      body: req.body.body,
+      updatedAt: Date.now()
+    });
+    res.redirect('/dashboard');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server error');
+  }
+});
+
+// DELETE: Delete post
+router.delete('/delete-post/:id', authMiddleware, async (req, res) => {
+  try {
+    await Post.findByIdAndDelete(req.params.id);
+    res.redirect('/dashboard');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server error');
+  }
+});
+
+module.exports = router;
